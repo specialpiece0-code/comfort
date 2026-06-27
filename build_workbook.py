@@ -22,14 +22,40 @@ BID_BASE = ["공고일","업무구분","공고번호","공고명","계약방법"
             "배정예산","공고기관","수요기관","입찰개시","입찰마감","개찰일시","공고상세URL"]
 SUP_BASE = ["등록일","공고명","소관기관","수행기관","지원분야","세부분야","지원대상",
             "신청기간","신청방법","상세URL"]
-# 긴급 열은 공고명(BID_BASE[3]) 바로 뒤에 위치
-BID_COLS = ["부처","처·청"] + BID_BASE[0:4] + ["긴급"] + BID_BASE[4:]   # 17
-SUP_COLS = ["부처"] + SUP_BASE                     # 11
-NBID, NSUP = len(BID_COLS), len(SUP_COLS)
-URGENT_COL = 7                  # 출력상 긴급 열 위치(1-based): 부처,처·청,공고일,업무구분,공고번호,공고명,[긴급]
-NUM_COLS = {10, 11}            # 추정가격, 배정예산 (출력 열 위치)
 # BID_BASE 내 위치
 I_DATE, I_NO, I_NAME, I_PRICE, I_DEMAND, I_URL = 0, 2, 3, 6, 9, 13
+
+# (선택) 사업요약: summaries.csv 가 있으면 공고명 뒤에 '사업요약' 열 추가
+from pathlib import Path
+SUMMARY_CSV = "summaries.csv"
+def load_summaries(path=SUMMARY_CSV):
+    import csv
+    d = {}
+    if Path(path).exists():
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                u = r.get("url"); s = (r.get("사업요약") or "").strip()
+                if u and s: d[u] = s
+    return d
+SUMMARIES = load_summaries()
+HAVE_SUMMARY = len(SUMMARIES) > 0
+
+def _bid_spec():
+    spec = [("부처","bu"), ("처·청","cheo"),
+            ("공고일","plain"), ("업무구분","plain"), ("공고번호","plain"), ("공고명","plain")]
+    if HAVE_SUMMARY: spec.append(("사업요약","plain"))
+    spec.append(("긴급","urgent"))
+    spec += [("계약방법","plain"), ("낙찰방법","plain"), ("추정가격","num"), ("배정예산","num"),
+             ("공고기관","plain"), ("수요기관","plain"), ("입찰개시","plain"), ("입찰마감","plain"),
+             ("개찰일시","plain"), ("공고상세URL","plain")]
+    return spec
+BID_SPEC = _bid_spec()
+BID_COLS = [h for h, _ in BID_SPEC]
+SUP_COLS = ["부처"] + SUP_BASE
+NBID, NSUP = len(BID_COLS), len(SUP_COLS)
+_WIDTH = {"부처":20,"처·청":16,"공고일":19,"업무구분":9,"공고번호":16,"공고명":40,
+          "사업요약":34,"긴급":6,"계약방법":14,"낙찰방법":22,"추정가격":14,"배정예산":14,
+          "공고기관":24,"수요기관":24,"입찰개시":19,"입찰마감":19,"개찰일시":19,"공고상세URL":30}
 
 # ---- 스타일 ----
 F_TITLE   = Font(bold=True, size=14, color="FFFFFF")
@@ -48,7 +74,7 @@ ALIGN_L   = Alignment(horizontal="left", vertical="center")
 THIN      = Side(style="thin", color="BFBFBF")
 BORDER    = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
-BID_WIDTHS = [20,16,19,9,16,40,6,14,22,14,14,24,24,19,19,19,30]   # 17 (긴급=공고명 뒤)
+BID_WIDTHS = [_WIDTH[h] for h in BID_COLS]
 SUP_WIDTHS = [20,19,38,16,18,12,14,14,22,28,30]
 
 def dept_order(files):
@@ -183,17 +209,23 @@ def write_header(ws, r, cols):
 
 def write_bid_row(ws, r, bu, unit, urgent, values):
     base = list(values) + [None] * (len(BID_BASE) - len(values))
-    out = [bu, unit] + base[0:4] + ["Y" if urgent else None] + base[4:]
-    for ci, v in enumerate(out, 1):
+    summary = SUMMARIES.get(base[I_URL], "") if HAVE_SUMMARY else None
+    val = {"부처": bu, "처·청": unit, "긴급": "Y" if urgent else None, "사업요약": summary,
+           "공고일": base[0], "업무구분": base[1], "공고번호": base[2], "공고명": base[3],
+           "계약방법": base[4], "낙찰방법": base[5], "추정가격": base[6], "배정예산": base[7],
+           "공고기관": base[8], "수요기관": base[9], "입찰개시": base[10], "입찰마감": base[11],
+           "개찰일시": base[12], "공고상세URL": base[13]}
+    for ci, (h, kind) in enumerate(BID_SPEC, 1):
+        v = val[h]
         cell = ws.cell(row=r, column=ci, value=v); cell.border = BORDER
-        if ci == 1:
+        if kind == "bu":
             cell.font = F_BU; cell.fill = FILL_BU
-        elif ci == 2:
+        elif kind == "cheo":
             cell.fill = FILL_CHEO
-        elif ci == URGENT_COL:
+        elif kind == "urgent":
             cell.alignment = ALIGN_C
             if urgent: cell.font = F_URG; cell.fill = FILL_URG
-        elif ci in NUM_COLS and isinstance(v, (int, float)):
+        elif kind == "num" and isinstance(v, (int, float)):
             cell.number_format = "#,##0"
     return r+1
 
