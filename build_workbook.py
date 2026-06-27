@@ -25,20 +25,23 @@ SUP_BASE = ["등록일","공고명","소관기관","수행기관","지원분야"
 # BID_BASE 내 위치
 I_DATE, I_NO, I_NAME, I_PRICE, I_DEMAND, I_URL = 0, 2, 3, 6, 9, 13
 
-# (선택) 사업요약: summaries.csv 가 있으면 공고명 뒤에 '사업요약' 열 추가
+# (선택) 사업요약: title_summaries.csv(공고명->요약)가 있으면 공고명 뒤에 '사업요약' 열 추가
 from pathlib import Path
-SUMMARY_CSV = "summaries.csv"
-def load_summaries(path=SUMMARY_CSV):
+TITLE_SUMMARY_CSV = "title_summaries.csv"
+def load_title_summaries(path=TITLE_SUMMARY_CSV):
     import csv
     d = {}
     if Path(path).exists():
         with open(path, encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
-                u = r.get("url"); s = (r.get("사업요약") or "").strip()
-                if u and s: d[u] = s
+                t = r.get("공고명"); s = (r.get("사업요약") or "").strip()
+                if t and s: d[t] = s
     return d
-SUMMARIES = load_summaries()
-HAVE_SUMMARY = len(SUMMARIES) > 0
+TITLE_SUM = load_title_summaries()
+HAVE_SUMMARY = len(TITLE_SUM) > 0
+def summarize(title):
+    t = str(title or "")
+    return TITLE_SUM.get(t) or (t if len(t) <= 30 else t[:30])
 
 def _bid_spec():
     spec = [("부처","bu"), ("처·청","cheo"),
@@ -209,7 +212,7 @@ def write_header(ws, r, cols):
 
 def write_bid_row(ws, r, bu, unit, urgent, values):
     base = list(values) + [None] * (len(BID_BASE) - len(values))
-    summary = SUMMARIES.get(base[I_URL], "") if HAVE_SUMMARY else None
+    summary = summarize(base[I_NAME]) if HAVE_SUMMARY else None
     val = {"부처": bu, "처·청": unit, "긴급": "Y" if urgent else None, "사업요약": summary,
            "공고일": base[0], "업무구분": base[1], "공고번호": base[2], "공고명": base[3],
            "계약방법": base[4], "낙찰방법": base[5], "추정가격": base[6], "배정예산": base[7],
