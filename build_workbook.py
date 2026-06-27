@@ -57,6 +57,19 @@ def load_title_class(path=TITLE_CLASS_CSV):
 TITLE_CLASS = load_title_class()
 HAVE_CLASS = len(TITLE_CLASS) > 0
 
+# (선택) 연속: continuity_urls.txt(작년·올해 모두 진행한 공고 URL)가 있으면 맨 뒤 '연속' 열 추가
+CONTINUITY_TXT = "continuity_urls.txt"
+def load_continuity(path=CONTINUITY_TXT):
+    s = set()
+    if Path(path).exists():
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                u = line.strip()
+                if u: s.add(u)
+    return s
+CONT = load_continuity()
+HAVE_CONT = len(CONT) > 0
+
 def _bid_spec():
     spec = [("부처","bu"), ("처·청","cheo"),
             ("공고일","plain"), ("업무구분","plain"), ("공고번호","plain")]
@@ -67,6 +80,7 @@ def _bid_spec():
     spec += [("계약방법","plain"), ("낙찰방법","plain"), ("추정가격","num"), ("배정예산","num"),
              ("공고기관","plain"), ("수요기관","plain"), ("입찰개시","plain"), ("입찰마감","plain"),
              ("개찰일시","plain"), ("공고상세URL","plain")]
+    if HAVE_CONT: spec.append(("연속","cont"))   # 맨 뒤
     return spec
 BID_SPEC = _bid_spec()
 BID_COLS = [h for h, _ in BID_SPEC]
@@ -74,7 +88,7 @@ SUP_COLS = ["부처"] + SUP_BASE
 NBID, NSUP = len(BID_COLS), len(SUP_COLS)
 _WIDTH = {"부처":20,"처·청":16,"공고일":19,"업무구분":9,"공고번호":16,"관련":6,"공고명":40,
           "사업요약":34,"긴급":6,"계약방법":14,"낙찰방법":22,"추정가격":14,"배정예산":14,
-          "공고기관":24,"수요기관":24,"입찰개시":19,"입찰마감":19,"개찰일시":19,"공고상세URL":30}
+          "공고기관":24,"수요기관":24,"입찰개시":19,"입찰마감":19,"개찰일시":19,"공고상세URL":30,"연속":7}
 
 # ---- 스타일 ----
 F_TITLE   = Font(bold=True, size=14, color="FFFFFF")
@@ -91,6 +105,8 @@ FILL_URG  = PatternFill("solid", fgColor="FCE4E4")   # 긴급 열
 F_CLS     = Font(bold=True)
 FILL_C1   = PatternFill("solid", fgColor="C6EFCE")   # 1=영위(초록)
 FILL_C2   = PatternFill("solid", fgColor="FFF2CC")   # 2=미영위(노랑)
+F_CONT    = Font(bold=True, color="1F4E78")
+FILL_CONT = PatternFill("solid", fgColor="DDEBF7")   # 연속(연한 파랑)
 ALIGN_C   = Alignment(horizontal="center", vertical="center")
 ALIGN_L   = Alignment(horizontal="left", vertical="center")
 THIN      = Side(style="thin", color="BFBFBF")
@@ -233,7 +249,8 @@ def write_bid_row(ws, r, bu, unit, urgent, values):
     base = list(values) + [None] * (len(BID_BASE) - len(values))
     summary = summarize(base[I_NAME]) if HAVE_SUMMARY else None
     cls = TITLE_CLASS.get(str(base[I_NAME] or "")) if HAVE_CLASS else None
-    val = {"부처": bu, "처·청": unit, "긴급": "Y" if urgent else None, "사업요약": summary, "관련": cls,
+    cont = "○" if (HAVE_CONT and base[I_URL] in CONT) else None
+    val = {"부처": bu, "처·청": unit, "긴급": "Y" if urgent else None, "사업요약": summary, "관련": cls, "연속": cont,
            "공고일": base[0], "업무구분": base[1], "공고번호": base[2], "공고명": base[3],
            "계약방법": base[4], "낙찰방법": base[5], "추정가격": base[6], "배정예산": base[7],
            "공고기관": base[8], "수요기관": base[9], "입찰개시": base[10], "입찰마감": base[11],
@@ -252,6 +269,9 @@ def write_bid_row(ws, r, bu, unit, urgent, values):
             cell.alignment = ALIGN_C
             if v == "1": cell.font = F_CLS; cell.fill = FILL_C1
             elif v == "2": cell.font = F_CLS; cell.fill = FILL_C2
+        elif kind == "cont":
+            cell.alignment = ALIGN_C
+            if v: cell.font = F_CONT; cell.fill = FILL_CONT
         elif kind == "num" and isinstance(v, (int, float)):
             cell.number_format = "#,##0"
     return r+1
