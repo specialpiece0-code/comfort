@@ -21,11 +21,12 @@ BID_BASE = ["공고일","업무구분","공고번호","공고명","계약방법"
             "배정예산","공고기관","수요기관","입찰개시","입찰마감","개찰일시","공고상세URL"]
 SUP_BASE = ["등록일","공고명","소관기관","수행기관","지원분야","세부분야","지원대상",
             "신청기간","신청방법","상세URL"]
-BID_COLS = ["부처","처·청","긴급"] + BID_BASE      # 17
+# 긴급 열은 공고명(BID_BASE[3]) 바로 뒤에 위치
+BID_COLS = ["부처","처·청"] + BID_BASE[0:4] + ["긴급"] + BID_BASE[4:]   # 17
 SUP_COLS = ["부처"] + SUP_BASE                     # 11
 NBID, NSUP = len(BID_COLS), len(SUP_COLS)
-# BID_BASE 내 숫자 서식 인덱스: 추정가격(6), 배정예산(7)
-BID_BASE_NUM = {6, 7}
+URGENT_COL = 7                  # 출력상 긴급 열 위치(1-based): 부처,처·청,공고일,업무구분,공고번호,공고명,[긴급]
+NUM_COLS = {10, 11}            # 추정가격, 배정예산 (출력 열 위치)
 # BID_BASE 내 위치
 I_NO, I_NAME, I_URL = 2, 3, 13
 
@@ -46,7 +47,7 @@ ALIGN_L   = Alignment(horizontal="left", vertical="center")
 THIN      = Side(style="thin", color="BFBFBF")
 BORDER    = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 
-BID_WIDTHS = [20,16,6,19,9,16,40,14,22,14,14,24,24,19,19,19,30]   # 17
+BID_WIDTHS = [20,16,19,9,16,40,6,14,22,14,14,24,24,19,19,19,30]   # 17 (긴급=공고명 뒤)
 SUP_WIDTHS = [20,19,38,16,18,12,14,14,22,28,30]
 
 def dept_order(files):
@@ -160,15 +161,18 @@ def write_header(ws, r, cols):
     return r+1
 
 def write_bid_row(ws, r, bu, unit, urgent, values):
-    a = ws.cell(row=r, column=1, value=bu);   a.font=F_BU; a.fill=FILL_BU;   a.border=BORDER
-    b = ws.cell(row=r, column=2, value=unit); b.fill=FILL_CHEO; b.border=BORDER
-    u = ws.cell(row=r, column=3, value="Y" if urgent else None)
-    u.border=BORDER; u.alignment=ALIGN_C
-    if urgent: u.font=F_URG; u.fill=FILL_URG
-    for k in range(len(BID_BASE)):
-        v = values[k] if k < len(values) else None
-        cell = ws.cell(row=r, column=4+k, value=v); cell.border = BORDER
-        if k in BID_BASE_NUM and isinstance(v,(int,float)):
+    base = list(values) + [None] * (len(BID_BASE) - len(values))
+    out = [bu, unit] + base[0:4] + ["Y" if urgent else None] + base[4:]
+    for ci, v in enumerate(out, 1):
+        cell = ws.cell(row=r, column=ci, value=v); cell.border = BORDER
+        if ci == 1:
+            cell.font = F_BU; cell.fill = FILL_BU
+        elif ci == 2:
+            cell.fill = FILL_CHEO
+        elif ci == URGENT_COL:
+            cell.alignment = ALIGN_C
+            if urgent: cell.font = F_URG; cell.fill = FILL_URG
+        elif ci in NUM_COLS and isinstance(v, (int, float)):
             cell.number_format = "#,##0"
     return r+1
 
@@ -191,7 +195,7 @@ def build_total_sheet(wb, depts):
     r += 1
     r = merge_banner(ws, r, NBID, "【입찰】", F_SECT, FILL_SECT)
     r = write_header(ws, r, BID_COLS)
-    ws.freeze_panes = ws.cell(row=r, column=4)      # 헤더행 + 부처/처·청/긴급 열 고정
+    ws.freeze_panes = ws.cell(row=r, column=3)      # 헤더행 + 부처/처·청/긴급 열 고정
     for d in depts:
         for unit, rows in d["units"]:
             for urgent, vals in rows:
@@ -213,7 +217,7 @@ def build_dept_sheet(wb, dept):
     r += 1
     r = merge_banner(ws, r, NBID, "【입찰】", F_SECT, FILL_SECT)
     r = write_header(ws, r, BID_COLS)
-    ws.freeze_panes = ws.cell(row=r, column=4)
+    ws.freeze_panes = ws.cell(row=r, column=3)
     for unit, rows in dept["units"]:
         for urgent, vals in rows:
             r = write_bid_row(ws, r, dept["name"], unit, urgent, vals)
