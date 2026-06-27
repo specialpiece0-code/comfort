@@ -308,6 +308,33 @@ def build_total_sheet(wb, depts):
             r = write_sup_row(ws, r, d["name"], vals)
     return ws
 
+def build_core_sheet(wb, depts):
+    """관련(1·2) 이면서 연속(○)인 핵심 후보만 모은 시트."""
+    ws = wb.create_sheet(title="핵심후보")
+    set_widths(ws, BID_WIDTHS)
+    rows = []
+    for d in depts:
+        for unit, urs in d["units"]:
+            for urgent, vals in urs:
+                base = list(vals) + [None] * (len(BID_BASE) - len(vals))
+                nm = str(base[I_NAME] or "")
+                cls = TITLE_CLASS.get(nm) if HAVE_CLASS else None
+                cont = HAVE_CONT and base[I_URL] in CONT
+                if cls in ("1", "2") and cont:
+                    rows.append((cls, d["name"], unit, urgent, vals))
+    rows.sort(key=lambda x: x[0])   # 관련 1 먼저, 그 안에서 부처순(안정정렬)
+    n1 = sum(1 for x in rows if x[0] == "1"); n2 = len(rows) - n1
+    r = 1
+    r = merge_banner(ws, r, NBID,
+        f"핵심후보 — 관련(1·2) & 연속(○)   총 {len(rows):,}건  (영위 {n1:,} / 미영위 {n2:,})",
+        F_TITLE, FILL_TITLE)
+    r += 1
+    r = write_header(ws, r, BID_COLS)
+    ws.freeze_panes = ws.cell(row=r, column=3)
+    for cls, dname, unit, urgent, vals in rows:
+        r = write_bid_row(ws, r, dname, unit, urgent, vals)
+    return len(rows)
+
 def build_dept_sheet(wb, dept):
     ws = wb.create_sheet(title=dept["name"][:31])
     set_widths(ws, BID_WIDTHS)
@@ -348,9 +375,15 @@ def main():
         print(f"  {d['name']}: 입찰 {bt:,} / 지원·공모 {len(d['support']):,}")
     wb = openpyxl.Workbook(); wb.remove(wb.active)
     print("총합 시트 작성..."); build_total_sheet(wb, depts)
+    if HAVE_CLASS and HAVE_CONT:
+        ncore = build_core_sheet(wb, depts)
+        print(f"핵심후보 시트: {ncore}건")
     print("부처별 시트 작성...")
     for d in depts: build_dept_sheet(wb, d)
-    wb.move_sheet("총합", -(len(wb.sheetnames)-1))
+    # 시트 순서: 핵심후보 → 총합 → 부처들
+    wb.move_sheet("총합", -wb.sheetnames.index("총합"))
+    if "핵심후보" in wb.sheetnames:
+        wb.move_sheet("핵심후보", -wb.sheetnames.index("핵심후보"))
     wb.save(OUT)
     print(f"저장: {OUT}  (시트 {len(wb.sheetnames)}개)")
 
