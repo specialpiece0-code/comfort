@@ -43,18 +43,44 @@ def summarize(title):
     t = str(title or "")
     return TITLE_SUM.get(t) or (t if len(t) <= 30 else t[:30])
 
-# (선택) 관련 분류: title_class.csv(공고명->1/2)가 있으면 공고명 왼쪽에 '관련' 열 추가
+# (선택) 관련 분류: title_class.csv(공고명->1/2, 호)가 있으면 공고명 왼쪽에 '관련'·'업종' 열 추가
+HO_NAME = {
+ "1":"농산물 도소매","2":"농산물 유통·가공·판매","3":"영농자재·종자·종균","4":"농산물 구매·비축",
+ "5":"농산물 수출입","6":"농산물 소분·재포장","7":"농산물 제조·육묘·자재","8":"식용란 수집판매",
+ "9":"학교·대규모 급식 공급","10":"친환경농산물 집단재배","11":"농업 공동이용시설 운영","12":"농산물 공동생산·유통가공",
+ "13":"농산물 공동판매 홍보","14":"농산물 자재","15":"농작업 대행","16":"농산물재배","17":"농기계·시설대여",
+ "18":"농장체험 운영","19":"식품·소비재 제조·유통","20":"주류 도소매","21":"화장품 제조판매",
+ "22":"건강기능식품 제조판매","23":"건강기능식품 소분","24":"식품 유통전문·수입판매","25":"먹는샘물 유통판매",
+ "26":"위생용품 수입판매","27":"일회용품·위생용기 제조판매","28":"식품보존·냉동냉장","29":"식당(음식)업",
+ "30":"식당 체인·프랜차이즈","31":"식당 부대사업","32":"운수업","33":"화물자동차 운송주선","34":"식품·축산물 운반",
+ "35":"택배","36":"택배보관함·관련제품","37":"물류컨설팅·물류서비스","38":"물류기술 개발·판매","39":"물류터미널 운영",
+ "40":"배송·운송·물류 서비스","41":"전자상거래·유통","42":"통신판매","43":"통신판매중개","44":"보관·창고",
+ "45":"임대","46":"용기·포장·패키징","47":"파지·재생재료 수집판매","48":"아이스팩·드라이아이스","49":"산업용가스 제조",
+ "50":"화학물질·화학제품 제조판매","51":"저작권 관리","52":"상표권 등록대행","53":"전자상거래 웹사이트 관리",
+ "54":"경영컨설팅","55":"인터넷광고","56":"마케팅 대행","57":"종합여행","58":"국내외여행","59":"국내여행",
+ "60":"여행중개","61":"여행보조·예약 서비스","62":"사업·무형재산권 중개","63":"레저시설 티켓예매·대행",
+ "64":"문화·예술·스포츠 티켓예매·대행","65":"자동차 임대(렌탈)","66":"항공권·선표 발권·예매","67":"전세운수",
+ "68":"관광·여행상품 개발","69":"전시·행사 운영·대행","70":"교육시설운영","71":"교육서비스",
+ "72":"가전·생활용품·통신기기 도소매","73":"대리점","74":"출판","75":"콘텐츠 제작·유통·판매","76":"디자인",
+ "77":"소프트웨어 개발·판매","78":"SW 설치·유지보수·컨설팅","79":"데이터·정보 제공·판매","80":"멤버십서비스",
+ "81":"상품권·포인트 발행·판매","82":"위치정보·위치기반 서비스","83":"해외사업","84":"부대사업",
+}
+def _ho_name(hostr):
+    m = re.search(r"\d+", str(hostr or ""))
+    return HO_NAME.get(m.group(), "") if m else ""
 TITLE_CLASS_CSV = "title_class.csv"
 def load_title_class(path=TITLE_CLASS_CSV):
     import csv
-    d = {}
+    cls = {}; hon = {}
     if Path(path).exists():
         with open(path, encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
                 t = r.get("공고명"); c = (r.get("관련") or "").strip()
-                if t and c in ("1", "2"): d[t] = c
-    return d
-TITLE_CLASS = load_title_class()
+                if t and c in ("1", "2"):
+                    cls[t] = c
+                    hon[t] = _ho_name(r.get("호"))
+    return cls, hon
+TITLE_CLASS, TITLE_HO = load_title_class()
 HAVE_CLASS = len(TITLE_CLASS) > 0
 
 # (선택) 연속: continuity_urls.txt(작년·올해 모두 진행한 공고 URL)가 있으면 맨 뒤 '연속' 열 추가
@@ -73,7 +99,7 @@ HAVE_CONT = len(CONT) > 0
 def _bid_spec():
     spec = [("부처","bu"), ("처·청","cheo"),
             ("공고일","plain"), ("업무구분","plain"), ("공고번호","plain")]
-    if HAVE_CLASS: spec.append(("관련","cls"))   # 공고명 왼쪽
+    if HAVE_CLASS: spec += [("관련","cls"), ("업종","plain")]   # 공고명 왼쪽
     spec.append(("공고명","plain"))
     if HAVE_SUMMARY: spec.append(("사업요약","plain"))
     spec.append(("긴급","urgent"))
@@ -86,7 +112,7 @@ BID_SPEC = _bid_spec()
 BID_COLS = [h for h, _ in BID_SPEC]
 SUP_COLS = ["부처"] + SUP_BASE
 NBID, NSUP = len(BID_COLS), len(SUP_COLS)
-_WIDTH = {"부처":20,"처·청":16,"공고일":19,"업무구분":9,"공고번호":16,"관련":6,"공고명":40,
+_WIDTH = {"부처":20,"처·청":16,"공고일":19,"업무구분":9,"공고번호":16,"관련":6,"업종":22,"공고명":40,
           "사업요약":34,"긴급":6,"계약방법":14,"낙찰방법":22,"추정가격":14,"배정예산":14,
           "공고기관":24,"수요기관":24,"입찰개시":19,"입찰마감":19,"개찰일시":19,"공고상세URL":30,"연속":7}
 
@@ -248,9 +274,12 @@ def write_header(ws, r, cols):
 def write_bid_row(ws, r, bu, unit, urgent, values):
     base = list(values) + [None] * (len(BID_BASE) - len(values))
     summary = summarize(base[I_NAME]) if HAVE_SUMMARY else None
-    cls = TITLE_CLASS.get(str(base[I_NAME] or "")) if HAVE_CLASS else None
+    nm_ = str(base[I_NAME] or "")
+    cls = TITLE_CLASS.get(nm_) if HAVE_CLASS else None
+    upjong = TITLE_HO.get(nm_, "") if HAVE_CLASS else None
     cont = "○" if (HAVE_CONT and base[I_URL] in CONT) else None
-    val = {"부처": bu, "처·청": unit, "긴급": "Y" if urgent else None, "사업요약": summary, "관련": cls, "연속": cont,
+    val = {"부처": bu, "처·청": unit, "긴급": "Y" if urgent else None, "사업요약": summary,
+           "관련": cls, "업종": upjong, "연속": cont,
            "공고일": base[0], "업무구분": base[1], "공고번호": base[2], "공고명": base[3],
            "계약방법": base[4], "낙찰방법": base[5], "추정가격": base[6], "배정예산": base[7],
            "공고기관": base[8], "수요기관": base[9], "입찰개시": base[10], "입찰마감": base[11],
