@@ -53,11 +53,12 @@ def collect_urls(workbook):
 
 
 def load_done(path):
+    """요약이 실제로 채워진 URL만 '완료'로 간주(빈 요약은 재실행 시 재시도)."""
     done = set()
     if Path(path).exists():
         with open(path, encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
-                if r.get("url"):
+                if r.get("url") and (r.get("사업요약") or "").strip():
                     done.add(r["url"])
     return done
 
@@ -135,7 +136,7 @@ async def fetch_one(page, url, delay, retries=2):
     return None, last
 
 
-async def worker(name, browser, queue, results, lock, args):
+async def worker(name, browser, queue, results, lock, args, stats):
     ctx = await browser.new_context(
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -154,9 +155,15 @@ async def worker(name, browser, queue, results, lock, args):
             summary = llm_summary(text, gongomyeong) or rule_summary(text, gongomyeong)
         async with lock:
             results.append({"url": url, "공고번호": gno, "source": src, "사업요약": summary})
-            if len(results) % 50 == 0:
+            stats["done"] += 1
+            if not summary:
+                stats["empty"] += 1
+            if len(results) >= 50:
                 flush(results, args.out)
-                print(f"  [{name}] 진행 {len(results)}건 …")
+            if stats["done"] % 50 == 0:
+                cum = stats["base"] + stats["done"]
+                print(f"  진행 {cum:,}/{stats['total']:,}  (이번 세션 {stats['done']:,}, "
+                      f"빈 요약 {stats['empty']:,})")
     await ctx.close()
 
 
@@ -197,20 +204,23 @@ async def main():
     for item in todo:
         queue.put_nowait(item)
     results, lock = [], asyncio.Lock()
+    stats = {"done": 0, "empty": 0, "base": len(done), "total": len(urls)}
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        workers = [asyncio.create_task(worker(f"W{i+1}", browser, queue, results, lock, args))
+        workers = [asyncio.create_task(worker(f"W{i+1}", browser, queue, results, lock, args, stats))
                    for i in range(args.concurrency)]
         await asyncio.gather(*workers)
         if results:
             flush(results, args.out)
         await browser.close()
+    print(f"빈 요약(실패/추출불가): {stats['empty']:,}건 — 재실행하면 자동 재시도됩니다.")
     print(f"완료. 결과 저장: {args.out}")
     print("이 파일을 repo에 커밋/푸시하면 워크북에 '사업요약' 열을 합쳐드립니다.")
 
 
 if __name__ == "__main__":
-    if sys.platform.startswith("win"):
+    # Windows에서 Python 3.8+ 는 기본 Proactor 루프라 별도 정책 설정 불필요
+    if sys.platform.startswith("win") and sys.version_info < (3, 8):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     asyncio.run(main())
