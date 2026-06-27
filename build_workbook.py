@@ -6,7 +6,8 @@
 - 맨 앞: 총합 시트 (입찰 전체 + 아래쪽 지원·공모 전체)
 - 이후: 부처별 시트 20개
 """
-import glob, os, re, openpyxl
+import glob, os, re, collections, openpyxl
+from datetime import datetime as _dt
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -28,7 +29,7 @@ NBID, NSUP = len(BID_COLS), len(SUP_COLS)
 URGENT_COL = 7                  # 출력상 긴급 열 위치(1-based): 부처,처·청,공고일,업무구분,공고번호,공고명,[긴급]
 NUM_COLS = {10, 11}            # 추정가격, 배정예산 (출력 열 위치)
 # BID_BASE 내 위치
-I_NO, I_NAME, I_URL = 2, 3, 13
+I_DATE, I_NO, I_NAME, I_PRICE, I_DEMAND, I_URL = 0, 2, 3, 6, 9, 13
 
 # ---- 스타일 ----
 F_TITLE   = Font(bold=True, size=14, color="FFFFFF")
@@ -93,12 +94,14 @@ def clean_bids(depts):
     for di, d in enumerate(depts):
         for ui, (unit, rows) in enumerate(d["units"]):
             for ri, vals in enumerate(rows):
-                no = vals[I_NO] if len(vals) > I_NO else None
+                g = lambda i: vals[i] if len(vals) > i else None
+                nm = g(I_NAME)
                 recs.append({
-                    "di": di, "ui": ui, "ri": ri, "no": no,
-                    "name": vals[I_NAME] if len(vals) > I_NAME else "",
-                    "cha": parse_cha(vals[I_URL] if len(vals) > I_URL else ""),
-                    "urgent": URGENT in str(vals[I_NAME] if len(vals) > I_NAME else ""),
+                    "di": di, "ui": ui, "ri": ri, "no": g(I_NO),
+                    "name": nm,
+                    "cha": parse_cha(g(I_URL)),
+                    "urgent": URGENT in str(nm or ""),
+                    "date": g(I_DATE), "price": g(I_PRICE), "demand": g(I_DEMAND),
                 })
     total = len(recs)
     # 2) 공고번호별 최신 차수만
@@ -127,6 +130,23 @@ def clean_bids(depts):
         else:
             final_ids.add(idx)
     after_kill = len(final_ids)
+    # 3b) 재공고 정리: (수요기관+공고명+추정가격) 동일하면 최신 공고일 1건만
+    rt_groups = collections.defaultdict(list)
+    for idx in final_ids:
+        rc = recs[idx]
+        rt_groups[(rc["demand"], rc["name"], rc["price"])].append(idx)
+    def _dval(i):
+        d = recs[i]["date"]
+        return d if isinstance(d, _dt) else _dt.min
+    removed_rt = 0
+    for ids in rt_groups.values():
+        if len(ids) < 2:
+            continue
+        keep = max(ids, key=lambda i: (_dval(i), recs[i]["cha"]))
+        for i in ids:
+            if i != keep:
+                final_ids.discard(i); removed_rt += 1
+    after_rt = len(final_ids)
     # 4) 재구성 (원래 순서 보존) + 긴급 카운트
     loc = {(rc["di"], rc["ui"], rc["ri"]): rc for rc in recs}
     new_depts, urgent_cnt = [], 0
@@ -142,7 +162,8 @@ def clean_bids(depts):
             new_units.append((unit, kept))
         new_depts.append({"name": d["name"], "units": new_units, "support": d["support"]})
     stats = {"total": total, "after_dedup": after_dedup, "after_kill": after_kill,
-             "removed_dup": total - after_dedup, "removed_kill": after_dedup - after_kill,
+             "after_rt": after_rt, "removed_dup": total - after_dedup,
+             "removed_kill": after_dedup - after_kill, "removed_rt": removed_rt,
              "kill_hits": kill_hits, "urgent": urgent_cnt}
     return new_depts, stats
 
@@ -240,8 +261,9 @@ def main():
     print(f"  -최신차수만(중복제거): -{st['removed_dup']:,}  -> {st['after_dedup']:,}")
     print(f"  -키워드 삭제         : -{st['removed_kill']:,}  -> {st['after_kill']:,}")
     print(f"     세부: " + " / ".join(f"{k} {v:,}" for k,v in st['kill_hits'].items()))
+    print(f"  -재공고 정리(동일가격): -{st['removed_rt']:,}  -> {st['after_rt']:,}")
     print(f"  긴급(Y) 표기         : {st['urgent']:,}건")
-    print(f"  최종 입찰 행         : {st['after_kill']:,}\n")
+    print(f"  최종 입찰 행         : {st['after_rt']:,}\n")
     for d in depts:
         bt = sum(len(r) for _,r in d["units"])
         print(f"  {d['name']}: 입찰 {bt:,} / 지원·공모 {len(d['support']):,}")
